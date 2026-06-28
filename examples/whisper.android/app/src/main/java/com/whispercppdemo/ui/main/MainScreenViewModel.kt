@@ -86,7 +86,7 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
 
         //val firstModel = modelsPath.listFiles()!!.first()
         //whisperContext = WhisperContext.createContextFromFile(firstModel.absolutePath)
-    }
+
 
     fun benchmark() = viewModelScope.launch {
         val modelFile = java.io.File(application.cacheDir, "custom_model.bin")

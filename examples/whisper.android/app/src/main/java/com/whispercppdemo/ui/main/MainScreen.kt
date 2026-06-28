@@ -80,10 +80,31 @@ private fun BenchmarkButton(enabled: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun TranscribeSampleButton(enabled: Boolean, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled) {
-        Text("Transcribe sample")
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            java.lang.Thread {
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        java.io.File(context.cacheDir, "custom.wav").outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        onClick()
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
+            }.start()
+        }
+    }
+
+    Button(onClick = { launcher.launch("audio/*") }, enabled = enabled) {
+        Text("파일 선택 (GPU 가속)")
     }
 }
+
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable

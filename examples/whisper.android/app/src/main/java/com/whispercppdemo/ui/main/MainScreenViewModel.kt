@@ -1,54 +1,37 @@
 package com.whispercppdemo.ui.main
 
 import android.app.Application
-import android.media.MediaPlayer
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.whispercppdemo.media.decodeWaveFile
-import com.whispercppdemo.recorder.Recorder
 import com.whispercpp.whisper.WhisperContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val LOG_TAG = "MainScreenViewModel"
 
 class MainScreenViewModel(private val application: Application) : ViewModel() {
-
+    
     var canTranscribe by mutableStateOf(false)
         private set
     var dataLog by mutableStateOf("")
         private set
-    var isRecording by mutableStateOf(false)
-        private set
 
-    private val modelsPath = File(application.filesDir, "models")
-    private val samplesPath = File(application.filesDir, "samples")
-    private var recorder: Recorder = Recorder()
     private var whisperContext: WhisperContext? = null
-    private var mediaPlayer: MediaPlayer? = null
-    private var recordedFile: File? = null
 
     init {
         viewModelScope.launch {
-            printMessage("Loading data...\n")
-            try {
-                copyAssets()
-                loadBaseModel()
-                canTranscribe = true
-            } catch (e: Exception) {
-                Log.w(LOG_TAG, e)
-                printMessage("${e.localizedMessage}\n")
-            }
+            printMessage("앱이 준비되었습니다. 상단의 '1. 모델 선택' 버튼을 눌러 .bin 모델을 로드하세요.\n")
         }
     }
 
@@ -56,143 +39,79 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
         dataLog += msg
     }
 
-    private suspend fun copyAssets() = withContext(Dispatchers.IO) {
-        modelsPath.mkdirs()
-        samplesPath.mkdirs()
-        application.copyData("samples", samplesPath, ::printMessage)
-        printMessage("All data copied to working directory.\n")
-    }
-
-    private suspend fun loadBaseModel() = withContext(Dispatchers.IO) {
-        printMessage("앱이 켜졌습니다. 상단의 '1. 모델 선택' 버튼을 눌러 터보 모델(.bin)을 등록해 주세요.\n")
-    }
-
-    fun benchmark() = viewModelScope.launch {
-        val modelFile = java.io.File(application.cacheDir, "custom_model.bin")
+    // 모델 파일을 내부로 복사한 뒤 엔진에 장착하는 함수
+    fun loadCustomModel() = viewModelScope.launch {
+        val modelFile = File(application.cacheDir, "custom_model.bin")
         if (modelFile.exists()) {
-            whisperContext = WhisperContext.createContextFromFile(modelFile.absolutePath)
-            printMessage("✅ 모델 로딩 완료! 이제 '2. 파일 선택(음성)' 버튼을 눌러주세요.\n")
-            canTranscribe = true
-        } else {
-            printMessage("❌ 모델 파일 복사 실패\n")
-        }
-    }
-
-    fun transcribeSample() = viewModelScope.launch {
-        transcribeAudio(java.io.File(application.cacheDir, "custom.wav"))
-    }
-
-    private suspend fun runBenchmark(nthreads: Int) {
-        if (!canTranscribe) return
-        canTranscribe = false
-        printMessage("Running benchmark. This will take minutes...\n")
-        whisperContext?.benchMemory(nthreads)?.let { printMessage(it) }
-        printMessage("\n")
-        whisperContext?.benchGgmlMulMat(nthreads)?.let { printMessage(it) }
-        canTranscribe = true
-    }
-
-    private suspend fun getFirstSample(): File = withContext(Dispatchers.IO) {
-        samplesPath.listFiles()!!.first()
-    }
-
-    private suspend fun readAudioSamples(file: File): FloatArray = withContext(Dispatchers.IO) {
-        stopPlayback()
-        startPlayback(file)
-        return@withContext decodeWaveFile(file)
-    }
-
-    private suspend fun stopPlayback() = withContext(Dispatchers.Main) {
-        mediaPlayer?.stop()
-        mediaPlayer?.release()
-        mediaPlayer = null
-    }
-
-    private suspend fun startPlayback(file: File) = withContext(Dispatchers.Main) {
-        mediaPlayer = MediaPlayer.create(application, file.absolutePath.toUri())
-        mediaPlayer?.start()
-    }
-
-    private suspend fun transcribeAudio(file: File) {
-        if (!canTranscribe) return
-        canTranscribe = false
-        try {
-            printMessage("Reading audio samples...\n")
-            val data = readAudioSamples(file)
-            printMessage("Transcribing data...\n")
-            val start = System.currentTimeMillis()
-            val text = whisperContext?.transcribeData(data)
-            val elapsed = System.currentTimeMillis() - start
-            printMessage("Done ($elapsed ms): $text\n")
-        } catch (e: Exception) {
-            Log.w(LOG_TAG, e)
-            printMessage("${e.localizedMessage}\n")
-        }
-        canTranscribe = true
-    }
-
-    fun toggleRecord() = viewModelScope.launch {
-        try {
-            if (isRecording) {
-                recorder.stopRecording()
-                isRecording = false
-                recordedFile?.let { transcribeAudio(it) }
-            } else {
-                stopPlayback()
-                val file = File(application.filesDir, "record.wav")
-                recorder.startRecording(file) { e ->
-                    viewModelScope.launch {
-                        withContext(Dispatchers.Main) {
-                            printMessage("${e.localizedMessage}\n")
-                            isRecording = false
-                        }
-                    }
+            printMessage("모델 로딩 중... 잠시만 기다려주세요.\n")
+            try {
+                // 백그라운드 스레드에서 무거운 모델 로딩
+                withContext(Dispatchers.IO) {
+                    whisperContext = WhisperContext.createContextFromFile(modelFile.absolutePath)
                 }
-                isRecording = true
-                recordedFile = file
+                printMessage("✅ 모델 로딩 완료! '2. 음성 선택' 버튼이 활성화되었습니다.\n\n")
+                canTranscribe = true
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "Model load error", e)
+                printMessage("❌ 모델 로딩 실패: ${e.localizedMessage}\n")
             }
-        } catch (e: Exception) {
-            Log.w(LOG_TAG, e)
-            printMessage("${e.localizedMessage}\n")
-            isRecording = false
+        } else {
+            printMessage("❌ 복사된 모델 파일을 찾을 수 없습니다.\n")
         }
     }
 
+    // 오디오 파일을 내부로 복사한 뒤 변환을 시작하는 함수
+    fun transcribeCustomAudio() = viewModelScope.launch {
+        if (!canTranscribe) return@launch
+        
+        val audioFile = File(application.cacheDir, "custom.wav")
+        if (!audioFile.exists()) {
+            printMessage("❌ 복사된 오디오 파일을 찾을 수 없습니다.\n")
+            return@launch
+        }
+
+        canTranscribe = false
+        try {
+            printMessage("오디오 데이터 해독 중...\n")
+            // C++ 엔진이 읽을 수 있게 오디오 데이터를 숫자로 변환
+            val data = withContext(Dispatchers.IO) { decodeWaveFile(audioFile) }
+            
+            printMessage("🚀 하드웨어 가속 텍스트 변환 시작...\n")
+            val start = System.currentTimeMillis()
+            
+            // STT 핵심 연산
+            val text = withContext(Dispatchers.Default) {
+                whisperContext?.transcribeData(data)
+            }
+            
+            val elapsed = System.currentTimeMillis() - start
+            printMessage("✅ 변환 완료 (소요시간: ${elapsed}ms):\n\n$text\n\n")
+            
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Transcription error", e)
+            printMessage("❌ 변환 실패: ${e.localizedMessage}\n")
+        }
+        canTranscribe = true
+    }
+
+    // 앱 종료 시 코루틴 규칙에 맞게 메모리를 안전하게 비우는 함수 (이전 에러 해결 부분)
     override fun onCleared() {
-        runCatching {
-            whisperContext?.release()
-            whisperContext = null
+        runBlocking {
+            try {
+                whisperContext?.release()
+                whisperContext = null
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "Release error", e)
+            }
         }
     }
 
     companion object {
         fun factory() = viewModelFactory {
             initializer {
-                val application =
-                    this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as Application
+                val application = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as Application
                 MainScreenViewModel(application)
             }
-        }
-    }
-}
-
-suspend fun Application.copyData(
-    prefix: String,
-    dir: File,
-    printLog: suspend (String) -> Unit
-) = withContext(Dispatchers.IO) {
-    assets.list(prefix)?.forEach { asset ->
-        val file = File(dir, asset)
-        if (file.exists()) {
-            printLog("${file.absolutePath} already exists...\n")
-        } else {
-            printLog("Copying $asset...\n")
-            assets.open("$prefix/$asset").use { inputStream ->
-                file.outputStream().use { outputStream ->
-                    inputStream.copyTo(outputStream)
-                }
-            }
-            printLog("Copied $asset!\n")
         }
     }
 }

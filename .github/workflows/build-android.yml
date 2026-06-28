@@ -45,6 +45,8 @@ jobs:
 
       - name: Build
         run: |
+          sudo apt-get update && sudo apt-get install -y glslang-tools libvulkan-dev
+          sed -i '1i set(GGML_VULKAN ON CACHE BOOL "" FORCE)' whisper/CMakeLists.txt
           cd whisper/examples/whisper.android
           ./gradlew assembleRelease --no-daemon
 

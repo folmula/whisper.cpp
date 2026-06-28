@@ -58,7 +58,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: whisper-android-app
-          path: examples/whisper.android/app/build/outputs/apk/**/*.apk
+          path: whisper/examples/whisper.android/app/build/outputs/apk/**/*.apk
           
   android_java:
     runs-on: ubuntu-22.04

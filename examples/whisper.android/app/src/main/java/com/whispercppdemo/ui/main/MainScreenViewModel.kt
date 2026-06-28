@@ -89,9 +89,9 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
     fun benchmark() = viewModelScope.launch {
         runBenchmark(6)
     }
-
+    
     fun transcribeSample() = viewModelScope.launch {
-        transcribeAudio(getFirstSample())
+        transcribeAudio(java.io.File(application.cacheDir, "custom.wav"))
     }
 
     private suspend fun runBenchmark(nthreads: Int) {

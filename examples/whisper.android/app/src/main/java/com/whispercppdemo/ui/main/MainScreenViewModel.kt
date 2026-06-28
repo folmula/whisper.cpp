@@ -75,7 +75,9 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
     }
 
     private suspend fun loadBaseModel() = withContext(Dispatchers.IO) {
-        printMessage("Loading model...\n")
+        printMessage("앱이 켜졌습니다. 상단의 '1. 모델 선택' 버튼을 눌러 터보 모델(.bin)을 등록해 주세요.\n")
+        }
+
         val models = application.assets.list("models/")
         if (models != null) {
             whisperContext = com.whispercpp.whisper.WhisperContext.createContextFromAsset(application.assets, "models/" + models[0])

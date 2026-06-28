@@ -1,132 +1,79 @@
 package com.whispercppdemo.ui.main
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
-import com.whispercppdemo.R
+import java.io.File
+import kotlin.concurrent.thread
 
 @Composable
 fun MainScreen(viewModel: MainScreenViewModel) {
-    MainScreen(
-        canTranscribe = viewModel.canTranscribe,
-        isRecording = viewModel.isRecording,
-        messageLog = viewModel.dataLog,
-        onBenchmarkTapped = viewModel::benchmark,
-        onTranscribeSampleTapped = viewModel::transcribeSample,
-        onRecordTapped = viewModel::toggleRecord
-    )
-}
+    val context = LocalContext.current
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MainScreen(
-    canTranscribe: Boolean,
-    isRecording: Boolean,
-    messageLog: String,
-    onBenchmarkTapped: () -> Unit,
-    onTranscribeSampleTapped: () -> Unit,
-    onRecordTapped: () -> Unit
-) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) }
-            )
-        },
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .padding(16.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.SpaceBetween) {
-                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    BenchmarkButton(enabled = canTranscribe, onClick = onBenchmarkTapped)
-                    TranscribeSampleButton(enabled = canTranscribe, onClick = onTranscribeSampleTapped)
-                }
-                RecordButton(
-                    enabled = canTranscribe,
-                    isRecording = isRecording,
-                    onClick = onRecordTapped
-                )
-            }
-            MessageLog(messageLog)
-        }
-    }
-}
-
-@Composable
-private fun MessageLog(log: String) {
-    SelectionContainer {
-        Text(modifier = Modifier.verticalScroll(rememberScrollState()), text = log)
-    }
-}
-
-@Composable
-private fun BenchmarkButton(enabled: Boolean, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled) {
-        Text("Benchmark")
-    }
-}
-
-@Composable
-private fun BenchmarkButton(enabled: Boolean, onClick: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            java.lang.Thread {
+    // 1. 모델 파일(.bin) 선택 및 복사 런처
+    val modelLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            thread {
                 try {
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        java.io.File(context.cacheDir, "custom_model.bin").outputStream().use { output ->
+                    context.contentResolver.openInputStream(it)?.use { input ->
+                        File(context.cacheDir, "custom_model.bin").outputStream().use { output ->
                             input.copyTo(output)
                         }
                     }
-                    android.os.Handler(android.os.Looper.getMainLooper()).post { onClick() }
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        viewModel.loadCustomModel()
+                    }
                 } catch (e: Exception) { e.printStackTrace() }
-            }.start()
+            }
         }
     }
-    // 사용자가 언제든 모델을 고를 수 있게 enabled = true 강제 고정
-    Button(onClick = { launcher.launch("*/*") }, enabled = true) {
-        Text("2. 음성 선택 (.wav)")
-    }
-}
 
-@OptIn(ExperimentalPermissionsApi::class)
-@Composable
-private fun RecordButton(enabled: Boolean, isRecording: Boolean, onClick: () -> Unit) {
-    val micPermissionState = rememberPermissionState(
-        permission = android.Manifest.permission.RECORD_AUDIO,
-        onPermissionResult = { granted ->
-            if (granted) {
-                onClick()
+    // 2. 오디오 파일(.wav) 선택 및 복사 런처
+    val audioLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            thread {
+                try {
+                    context.contentResolver.openInputStream(it)?.use { input ->
+                        File(context.cacheDir, "custom.wav").outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        viewModel.transcribeCustomAudio()
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
             }
         }
-    )
-    Button(onClick = {
-        if (micPermissionState.status.isGranted) {
-            onClick()
-        } else {
-            micPermissionState.launchPermissionRequest()
+    }
+
+    // 매우 직관적이고 심플한 UI 레이아웃
+    Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+        Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { modelLauncher.launch("*/*") }) {
+                Text("1. 모델 선택 (.bin)")
+            }
+            Button(
+                onClick = { audioLauncher.launch("audio/*") },
+                enabled = viewModel.canTranscribe
+            ) {
+                Text("2. 음성 선택 (.wav)")
+            }
         }
-     }, enabled = enabled) {
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // 텍스트 변환 결과 및 로그 출력창
         Text(
-            if (isRecording) {
-                "Stop recording"
-            } else {
-                "Start recording"
-            }
+            text = viewModel.dataLog,
+            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())
         )
     }
 }

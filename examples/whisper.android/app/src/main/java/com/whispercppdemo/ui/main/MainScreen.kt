@@ -79,7 +79,7 @@ private fun BenchmarkButton(enabled: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TranscribeSampleButton(enabled: Boolean, onClick: () -> Unit) {
+private fun BenchmarkButton(enabled: Boolean, onClick: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -88,23 +88,20 @@ private fun TranscribeSampleButton(enabled: Boolean, onClick: () -> Unit) {
             java.lang.Thread {
                 try {
                     context.contentResolver.openInputStream(uri)?.use { input ->
-                        java.io.File(context.cacheDir, "custom.wav").outputStream().use { output ->
+                        java.io.File(context.cacheDir, "custom_model.bin").outputStream().use { output ->
                             input.copyTo(output)
                         }
                     }
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        onClick()
-                    }
+                    android.os.Handler(android.os.Looper.getMainLooper()).post { onClick() }
                 } catch (e: Exception) { e.printStackTrace() }
             }.start()
         }
     }
-
-    Button(onClick = { launcher.launch("audio/*") }, enabled = enabled) {
-        Text("파일 선택 (GPU 가속)")
+    // 사용자가 언제든 모델을 고를 수 있게 enabled = true 강제 고정
+    Button(onClick = { launcher.launch("*/*") }, enabled = true) {
+        Text("2. 음성 선택 (.wav)")
     }
 }
-
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable

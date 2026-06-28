@@ -1,7 +1,6 @@
 package com.whispercppdemo.ui.main
 
 import android.app.Application
-import android.content.Context
 import android.media.MediaPlayer
 import android.util.Log
 import androidx.compose.runtime.getValue
@@ -18,13 +17,13 @@ import com.whispercppdemo.recorder.Recorder
 import com.whispercpp.whisper.WhisperContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val LOG_TAG = "MainScreenViewModel"
 
 class MainScreenViewModel(private val application: Application) : ViewModel() {
+
     var canTranscribe by mutableStateOf(false)
         private set
     var dataLog by mutableStateOf("")
@@ -35,30 +34,21 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
     private val modelsPath = File(application.filesDir, "models")
     private val samplesPath = File(application.filesDir, "samples")
     private var recorder: Recorder = Recorder()
-    private var whisperContext: com.whispercpp.whisper.WhisperContext? = null
+    private var whisperContext: WhisperContext? = null
     private var mediaPlayer: MediaPlayer? = null
     private var recordedFile: File? = null
 
     init {
         viewModelScope.launch {
-            printSystemInfo()
-            loadData()
-        }
-    }
-
-    private suspend fun printSystemInfo() {
-        printMessage(String.format("System Info: %s\n", com.whispercpp.whisper.WhisperContext.getSystemInfo()))
-    }
-
-    private suspend fun loadData() {
-        printMessage("Loading data...\n")
-        try {
-            copyAssets()
-            loadBaseModel()
-            canTranscribe = true
-        } catch (e: Exception) {
-            Log.w(LOG_TAG, e)
-            printMessage("${e.localizedMessage}\n")
+            printMessage("Loading data...\n")
+            try {
+                copyAssets()
+                loadBaseModel()
+                canTranscribe = true
+            } catch (e: Exception) {
+                Log.w(LOG_TAG, e)
+                printMessage("${e.localizedMessage}\n")
+            }
         }
     }
 
@@ -69,7 +59,6 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
     private suspend fun copyAssets() = withContext(Dispatchers.IO) {
         modelsPath.mkdirs()
         samplesPath.mkdirs()
-        //application.copyData("models", modelsPath, ::printMessage)
         application.copyData("samples", samplesPath, ::printMessage)
         printMessage("All data copied to working directory.\n")
     }
@@ -81,7 +70,7 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
     fun benchmark() = viewModelScope.launch {
         val modelFile = java.io.File(application.cacheDir, "custom_model.bin")
         if (modelFile.exists()) {
-            whisperContext = com.whispercpp.whisper.WhisperContext.createContextFromFile(modelFile.absolutePath)
+            whisperContext = WhisperContext.createContextFromFile(modelFile.absolutePath)
             printMessage("✅ 모델 로딩 완료! 이제 '2. 파일 선택(음성)' 버튼을 눌러주세요.\n")
             canTranscribe = true
         } else {
@@ -94,17 +83,12 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
     }
 
     private suspend fun runBenchmark(nthreads: Int) {
-        if (!canTranscribe) {
-            return
-        }
-
+        if (!canTranscribe) return
         canTranscribe = false
-
         printMessage("Running benchmark. This will take minutes...\n")
-        whisperContext?.benchMemory(nthreads)?.let{ printMessage(it) }
+        whisperContext?.benchMemory(nthreads)?.let { printMessage(it) }
         printMessage("\n")
-        whisperContext?.benchGgmlMulMat(nthreads)?.let{ printMessage(it) }
-
+        whisperContext?.benchGgmlMulMat(nthreads)?.let { printMessage(it) }
         canTranscribe = true
     }
 
@@ -130,26 +114,20 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
     }
 
     private suspend fun transcribeAudio(file: File) {
-        if (!canTranscribe) {
-            return
-        }
-
+        if (!canTranscribe) return
         canTranscribe = false
-
         try {
-            printMessage("Reading wave samples... ")
+            printMessage("Reading audio samples...\n")
             val data = readAudioSamples(file)
-            printMessage("${data.size / (16000 / 1000)} ms\n")
             printMessage("Transcribing data...\n")
             val start = System.currentTimeMillis()
             val text = whisperContext?.transcribeData(data)
             val elapsed = System.currentTimeMillis() - start
-            printMessage("Done ($elapsed ms): \n$text\n")
+            printMessage("Done ($elapsed ms): $text\n")
         } catch (e: Exception) {
             Log.w(LOG_TAG, e)
             printMessage("${e.localizedMessage}\n")
         }
-
         canTranscribe = true
     }
 
@@ -161,7 +139,7 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
                 recordedFile?.let { transcribeAudio(it) }
             } else {
                 stopPlayback()
-                val file = getTempFileForRecording()
+                val file = File(application.filesDir, "record.wav")
                 recorder.startRecording(file) { e ->
                     viewModelScope.launch {
                         withContext(Dispatchers.Main) {
@@ -180,15 +158,10 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
         }
     }
 
-    private suspend fun getTempFileForRecording() = withContext(Dispatchers.IO) {
-        File.createTempFile("recording", "wav")
-    }
-
     override fun onCleared() {
-        runBlocking {
+        runCatching {
             whisperContext?.release()
             whisperContext = null
-            stopPlayback()
         }
     }
 
@@ -203,22 +176,23 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
     }
 }
 
-private suspend fun Context.copyData(
-    assetDirName: String,
-    destDir: File,
-    printMessage: suspend (String) -> Unit
+suspend fun Application.copyData(
+    prefix: String,
+    dir: File,
+    printLog: suspend (String) -> Unit
 ) = withContext(Dispatchers.IO) {
-    assets.list(assetDirName)?.forEach { name ->
-        val assetPath = "$assetDirName/$name"
-        Log.v(LOG_TAG, "Processing $assetPath...")
-        val destination = File(destDir, name)
-        Log.v(LOG_TAG, "Copying $assetPath to $destination...")
-        printMessage("Copying $name...\n")
-        assets.open(assetPath).use { input ->
-            destination.outputStream().use { output ->
-                input.copyTo(output)
+    assets.list(prefix)?.forEach { asset ->
+        val file = File(dir, asset)
+        if (file.exists()) {
+            printLog("${file.absolutePath} already exists...\n")
+        } else {
+            printLog("Copying $asset...\n")
+            assets.open("$prefix/$asset").use { inputStream ->
+                file.outputStream().use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
             }
+            printLog("Copied $asset!\n")
         }
-        Log.v(LOG_TAG, "Copied $assetPath to $destination")
     }
 }

@@ -89,9 +89,16 @@ class MainScreenViewModel(private val application: Application) : ViewModel() {
     }
 
     fun benchmark() = viewModelScope.launch {
-        runBenchmark(6)
+        val modelFile = java.io.File(application.cacheDir, "custom_model.bin")
+        if (modelFile.exists()) {
+            whisperContext = com.whispercpp.whisper.WhisperContext.createContextFromFile(modelFile.absolutePath)
+            printMessage("✅ 모델 로딩 완료! 이제 '2. 파일 선택(음성)' 버튼을 눌러주세요.\n")
+            canTranscribe = true
+        } else {
+            printMessage("❌ 모델 파일 복사 실패\n")
+        }
     }
-    
+
     fun transcribeSample() = viewModelScope.launch {
         transcribeAudio(java.io.File(application.cacheDir, "custom.wav"))
     }
